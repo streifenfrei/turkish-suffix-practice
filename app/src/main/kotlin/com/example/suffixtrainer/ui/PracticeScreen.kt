@@ -1,5 +1,6 @@
 package com.example.suffixtrainer.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -7,10 +8,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -116,6 +118,8 @@ private fun PracticeContent(
     Column(
         modifier = modifier
             .fillMaxSize()
+            // Centre the content in the space between the top bar and the keyboard.
+            .imePadding()
             // A horizontal swipe (either direction) draws a new random card.
             .pointerInput(state.nonce) {
                 var total = 0f
@@ -146,14 +150,6 @@ private fun PracticeContent(
             onInput = onInput,
             onImeAction = onImeAction,
         )
-
-        Spacer(Modifier.height(28.dp))
-
-        Text(
-            text = "Swipe for a new card",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-        )
     }
 }
 
@@ -175,7 +171,7 @@ private fun TurkishLine(
             when (segment) {
                 is CardSegment.Text -> Text(
                     text = segment.text,
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.headlineMedium,
                 )
 
                 is CardSegment.Blank -> {
@@ -218,16 +214,20 @@ private fun BlankCell(
         else -> MaterialTheme.colorScheme.error
     }
     val underlineColor = if (checked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
-    val style = MaterialTheme.typography.headlineSmall
+    val style = MaterialTheme.typography.headlineMedium
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         if (checked && !correct) {
-            Text(text = answer, style = MaterialTheme.typography.labelSmall, color = CorrectGreen)
+            Text(text = answer, style = MaterialTheme.typography.labelMedium, color = CorrectGreen)
         }
         // BasicTextField fills its parent's width by default, so size it to content with an
-        // invisible sizer Text: an empty blank is just a small slot; a filled one hugs its text
-        // and reads like the rest of the sentence.
+        // invisible sizer Text: an empty blank is just a small slot; a filled one hugs its text.
+        // A faint brighter background marks the slot against the page.
         Box(
-            modifier = if (input.isEmpty()) Modifier.widthIn(min = 32.dp) else Modifier,
+            modifier = (if (input.isEmpty()) Modifier.widthIn(min = 32.dp) else Modifier)
+                .background(
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
+                    RoundedCornerShape(4.dp),
+                ),
             contentAlignment = Alignment.Center,
         ) {
             // Reserve a few dp past the text for the cursor, so the field never has to scroll
