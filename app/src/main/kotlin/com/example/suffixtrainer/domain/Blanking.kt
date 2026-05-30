@@ -49,7 +49,6 @@ fun renderCard(data: CardData, enabled: Set<Category>): Card? {
         sentenceId = data.sentence.id,
         english = data.sentence.englishText,
         segments = segments,
-        audioPath = data.sentence.audioPath,
     )
 }
 

@@ -1,37 +1,34 @@
 package com.example.suffixtrainer.ui
 
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -42,8 +39,10 @@ import com.example.suffixtrainer.model.Category
 import com.example.suffixtrainer.ui.practice.PracticeUiState
 import com.example.suffixtrainer.ui.practice.PracticeViewModel
 import com.example.suffixtrainer.ui.theme.TurkishSuffixPracticeTheme
+import kotlin.math.abs
 
-private const val BLANK_PLACEHOLDER = "___"
+/** Green used to mark a correct answer (and the shown solution); reads on the dark theme. */
+private val CorrectGreen = Color(0xFF66BB6A)
 
 @Composable
 fun PracticeScreen(
@@ -53,10 +52,9 @@ fun PracticeScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     PracticeContent(
         state = state,
-        onPrev = viewModel::prev,
-        onNext = viewModel::next,
-        onReveal = viewModel::toggleReveal,
-        onPlay = viewModel::playAudio,
+        onInput = viewModel::onInputChange,
+        onCheck = viewModel::check,
+        onNewCard = viewModel::newCard,
         modifier = modifier,
     )
 }
@@ -64,32 +62,36 @@ fun PracticeScreen(
 @Composable
 private fun PracticeContent(
     state: PracticeUiState,
-    onPrev: () -> Unit,
-    onNext: () -> Unit,
-    onReveal: () -> Unit,
-    onPlay: () -> Unit,
+    onInput: (Int, String) -> Unit,
+    onCheck: () -> Unit,
+    onNewCard: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val card = state.current
+    val card = state.card
     if (card == null) {
         EmptyDeck(modifier)
         return
     }
 
+    val swipeThresholdPx = with(LocalDensity.current) { 64.dp.toPx() }
     Column(
         modifier = modifier
             .fillMaxSize()
+            // A horizontal swipe (either direction) draws a new random card.
+            .pointerInput(card.sentenceId) {
+                var total = 0f
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (abs(total) > swipeThresholdPx) onNewCard()
+                        total = 0f
+                    },
+                    onHorizontalDrag = { _, dragAmount -> total += dragAmount },
+                )
+            }
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text(
-            text = "${state.position} / ${state.total}",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(24.dp))
-
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier
@@ -103,74 +105,113 @@ private fun PracticeContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = turkishLine(card, state.revealed, MaterialTheme.colorScheme.primary),
-                    style = MaterialTheme.typography.headlineSmall,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(16.dp))
-                TextButton(onClick = onPlay) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                    Text("Play audio", modifier = Modifier.padding(start = 8.dp))
-                }
+                Spacer(Modifier.height(20.dp))
+                TurkishLine(state = state, card = card, onInput = onInput)
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(28.dp))
 
-        OutlinedButton(onClick = onReveal) {
-            Icon(
-                imageVector = if (state.revealed) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                contentDescription = null,
-            )
-            Text(
-                text = if (state.revealed) "Hide" else "Reveal",
-                modifier = Modifier.padding(start = 8.dp),
-            )
+        if (!state.checked) {
+            Button(onClick = onCheck) { Text("Check") }
+            Spacer(Modifier.height(12.dp))
         }
+        Text(
+            text = "Swipe for a new card",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
 
-        Spacer(Modifier.height(24.dp))
+/** The Turkish line: literal text segments interleaved with editable blank fields, wrapping. */
+@Composable
+private fun TurkishLine(
+    state: PracticeUiState,
+    card: PracticeCard,
+    onInput: (Int, String) -> Unit,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.Start,
+        itemVerticalAlignment = Alignment.CenterVertically,
+    ) {
+        var blankIndex = 0
+        card.segments.forEach { segment ->
+            when (segment) {
+                is CardSegment.Text -> Text(
+                    text = segment.text,
+                    style = MaterialTheme.typography.headlineSmall,
+                )
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Button(
-                onClick = onPrev,
-                enabled = state.hasPrev,
-                modifier = Modifier.weight(1f),
-            ) { Text("Previous") }
-            Button(
-                onClick = onNext,
-                enabled = state.hasNext,
-                modifier = Modifier.weight(1f),
-            ) { Text("Next") }
+                is CardSegment.Blank -> {
+                    val i = blankIndex++
+                    BlankCell(
+                        answer = segment.answer,
+                        input = state.inputs.getOrElse(i) { "" },
+                        checked = state.checked,
+                        correct = state.results.getOrElse(i) { false },
+                        onInput = { onInput(i, it) },
+                    )
+                }
+            }
         }
     }
 }
 
-/**
- * Renders the Turkish line inline: literal segments as-is, blanked suffixes as a placeholder
- * (or the answer when [revealed]), styled in [accent] with an underline.
- */
-private fun turkishLine(card: PracticeCard, revealed: Boolean, accent: Color): AnnotatedString =
-    buildAnnotatedString {
-        for (segment in card.segments) {
-            when (segment) {
-                is CardSegment.Text -> append(segment.text)
-                is CardSegment.Blank -> withStyle(
-                    SpanStyle(
-                        color = accent,
-                        fontWeight = FontWeight.Bold,
-                        textDecoration = TextDecoration.Underline,
-                    ),
-                ) {
-                    append(if (revealed) segment.answer else BLANK_PLACEHOLDER)
-                }
-            }
-        }
+@Composable
+private fun BlankCell(
+    answer: String,
+    input: String,
+    checked: Boolean,
+    correct: Boolean,
+    onInput: (String) -> Unit,
+) {
+    val color = when {
+        !checked -> MaterialTheme.colorScheme.primary
+        correct -> CorrectGreen
+        else -> MaterialTheme.colorScheme.error
     }
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // The correct suffix, shown above only when this blank was answered wrong.
+        if (checked && !correct) {
+            Text(
+                text = answer,
+                style = MaterialTheme.typography.labelSmall,
+                color = CorrectGreen,
+            )
+        }
+        BasicTextField(
+            value = input,
+            onValueChange = onInput,
+            readOnly = checked,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.headlineSmall.copy(
+                color = color,
+                textAlign = TextAlign.Center,
+            ),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            modifier = Modifier
+                .widthIn(min = 56.dp)
+                .drawBehind {
+                    val y = size.height
+                    drawLine(color, Offset(0f, y), Offset(size.width, y), strokeWidth = 2.dp.toPx())
+                },
+            decorationBox = { inner ->
+                Box(contentAlignment = Alignment.Center) {
+                    if (input.isEmpty() && !checked) {
+                        Text(
+                            text = "___",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    inner()
+                }
+            },
+        )
+    }
+}
 
 @Composable
 private fun EmptyDeck(modifier: Modifier = Modifier) {
@@ -188,28 +229,45 @@ private fun EmptyDeck(modifier: Modifier = Modifier) {
     }
 }
 
-@Preview(showBackground = true)
+private val SAMPLE_CARD = PracticeCard(
+    sentenceId = 1,
+    english = "I stayed at home",
+    segments = listOf(
+        CardSegment.Text("Ev"),
+        CardSegment.Blank("de", Category.LOCATIVE),
+        CardSegment.Text(" kal"),
+        CardSegment.Blank("dı", Category.PAST_DEFINITE),
+        CardSegment.Text("m."),
+    ),
+)
+
+@Preview(showBackground = true, name = "Practice — typing")
 @Composable
 private fun PracticeScreenPreview() {
-    val sampleCard = PracticeCard(
-        sentenceId = 1,
-        english = "I stayed at home",
-        segments = listOf(
-            CardSegment.Text("Ev"),
-            CardSegment.Blank("de", Category.LOCATIVE),
-            CardSegment.Text(" kal"),
-            CardSegment.Blank("dı", Category.PAST_DEFINITE),
-            CardSegment.Text("m."),
-        ),
-        audioPath = null,
-    )
     TurkishSuffixPracticeTheme {
         PracticeContent(
-            state = PracticeUiState(deck = listOf(sampleCard), index = 0, revealed = false),
-            onPrev = {},
-            onNext = {},
-            onReveal = {},
-            onPlay = {},
+            state = PracticeUiState(card = SAMPLE_CARD, inputs = listOf("de", "")),
+            onInput = { _, _ -> },
+            onCheck = {},
+            onNewCard = {},
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Practice — checked")
+@Composable
+private fun PracticeScreenCheckedPreview() {
+    TurkishSuffixPracticeTheme {
+        PracticeContent(
+            state = PracticeUiState(
+                card = SAMPLE_CARD,
+                inputs = listOf("de", "xx"),
+                checked = true,
+                results = listOf(true, false),
+            ),
+            onInput = { _, _ -> },
+            onCheck = {},
+            onNewCard = {},
         )
     }
 }

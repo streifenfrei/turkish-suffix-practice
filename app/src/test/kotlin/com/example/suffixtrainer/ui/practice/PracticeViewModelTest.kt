@@ -1,17 +1,14 @@
 package com.example.suffixtrainer.ui.practice
 
-import com.example.suffixtrainer.audio.AudioPlayer
 import com.example.suffixtrainer.data.FakeCardRepository
 import com.example.suffixtrainer.data.PreferencesRepository
 import com.example.suffixtrainer.model.Category
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -19,6 +16,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -26,8 +24,6 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class PracticeViewModelTest {
 
-    // One eager dispatcher shared by the test scope and viewModelScope, so StateFlow updates
-    // propagate synchronously and `uiState.value` is current right after each action.
     private val dispatcher = UnconfinedTestDispatcher()
 
     @Before
@@ -41,91 +37,59 @@ class PracticeViewModelTest {
     }
 
     private fun viewModel(prefs: FakePreferencesRepository) =
-        PracticeViewModel(FakeCardRepository(), prefs, NoOpAudioPlayer())
+        PracticeViewModel(FakeCardRepository(), prefs)
 
     @Test
-    fun `deck contains only cards with an enabled suffix and re-filters live`() =
-        runTest(dispatcher) {
-            val prefs = FakePreferencesRepository(setOf(Category.LOCATIVE))
-            val vm = viewModel(prefs)
-            backgroundScope.launchCollect(vm.uiState)
-
-            // Only "Evde kaldım." carries LOCATIVE.
-            assertEquals(1, vm.uiState.value.deck.size)
-            assertTrue(vm.uiState.value.deck.single().blanks.all { it.category == Category.LOCATIVE })
-
-            // Enabling PAST_DEFINITE pulls in more sentences and changes the blanks.
-            prefs.setCategoryEnabled(Category.PAST_DEFINITE, true)
-            assertTrue(vm.uiState.value.deck.size > 1)
-            val evde = vm.uiState.value.deck.first { card -> card.english == "I stayed at home" }
-            assertEquals(
-                setOf(Category.LOCATIVE, Category.PAST_DEFINITE),
-                evde.blanks.map { it.category }.toSet(),
-            )
-        }
-
-    @Test
-    fun `next prev and reveal transitions`() = runTest(dispatcher) {
-        val prefs = FakePreferencesRepository(setOf(Category.PAST_DEFINITE)) // 4 cards
-        val vm = viewModel(prefs)
-        backgroundScope.launchCollect(vm.uiState)
-
-        assertEquals(0, vm.uiState.value.index)
-        assertFalse(vm.uiState.value.hasPrev)
-        assertTrue(vm.uiState.value.hasNext)
-
-        vm.toggleReveal()
-        assertTrue(vm.uiState.value.revealed)
-
-        vm.next()
-        assertEquals(1, vm.uiState.value.index)
-        assertFalse("reveal resets on navigation", vm.uiState.value.revealed)
-        assertTrue(vm.uiState.value.hasPrev)
-
-        vm.prev()
-        assertEquals(0, vm.uiState.value.index)
+    fun `empty deck shows no card when enabled categories produce nothing`() = runTest(dispatcher) {
+        // NOMINATIVE is zero-width: no sample card carries it.
+        val vm = viewModel(FakePreferencesRepository(setOf(Category.NOMINATIVE)))
+        assertNull(vm.uiState.value.card)
     }
 
     @Test
-    fun `empty deck when enabled categories produce no cards`() = runTest(dispatcher) {
-        // NOMINATIVE is zero-width: no sample sentence carries it, so the deck is empty.
-        val prefs = FakePreferencesRepository(setOf(Category.NOMINATIVE))
-        val vm = viewModel(prefs)
-        backgroundScope.launchCollect(vm.uiState)
+    fun `single-blank card grades a correct answer case-insensitively`() = runTest(dispatcher) {
+        // Only "Evde kaldım." carries LOCATIVE → a one-blank card whose answer is "de".
+        val vm = viewModel(FakePreferencesRepository(setOf(Category.LOCATIVE)))
+        val card = vm.uiState.value.card!!
+        assertEquals(1, card.blanks.size)
+        assertEquals("de", card.blanks.single().answer)
 
+        vm.onInputChange(0, "DE")
+        vm.check()
+        assertTrue(vm.uiState.value.checked)
+        assertEquals(listOf(true), vm.uiState.value.results)
+    }
+
+    @Test
+    fun `wrong answer is graded incorrect`() = runTest(dispatcher) {
+        val vm = viewModel(FakePreferencesRepository(setOf(Category.LOCATIVE)))
+        vm.onInputChange(0, "xx")
+        vm.check()
+        assertEquals(listOf(false), vm.uiState.value.results)
+    }
+
+    @Test
+    fun `input is locked once checked`() = runTest(dispatcher) {
+        val vm = viewModel(FakePreferencesRepository(setOf(Category.LOCATIVE)))
+        vm.onInputChange(0, "de")
+        vm.check()
+        vm.onInputChange(0, "xx") // ignored after checking
+        assertEquals(listOf("de"), vm.uiState.value.inputs)
+    }
+
+    @Test
+    fun `newCard clears input and check state`() = runTest(dispatcher) {
+        val vm = viewModel(FakePreferencesRepository(setOf(Category.LOCATIVE)))
+        vm.onInputChange(0, "de")
+        vm.check()
+
+        vm.newCard()
         val state = vm.uiState.value
-        assertTrue("deck should be empty", state.deck.isEmpty())
-        assertEquals(null, state.current)
-        assertEquals(0, state.total)
-        assertEquals(0, state.position)
-        assertFalse(state.hasPrev)
-        assertFalse(state.hasNext)
+        assertFalse(state.checked)
+        assertTrue(state.results.isEmpty())
+        assertEquals(listOf(""), state.inputs) // single blank, reset to empty
+        assertEquals("de", state.card!!.blanks.single().answer)
     }
-
-    @Test
-    fun `index clamps when the deck shrinks`() = runTest(dispatcher) {
-        val prefs = FakePreferencesRepository(Category.entries.toSet())
-        val vm = viewModel(prefs)
-        backgroundScope.launchCollect(vm.uiState)
-
-        repeat(vm.uiState.value.total + 5) { vm.next() }
-        assertEquals(vm.uiState.value.total - 1, vm.uiState.value.index)
-
-        // Collapse to a single-card deck; the index must clamp into range.
-        prefs.replace(setOf(Category.LOCATIVE))
-        assertEquals(1, vm.uiState.value.deck.size)
-        assertEquals(0, vm.uiState.value.index)
-    }
-}
-
-/** Keep the WhileSubscribed-shared [uiState] hot for the duration of the test. */
-private fun <T> CoroutineScope.launchCollect(flow: StateFlow<T>) {
-    launch { flow.collect {} }
-}
-
-private class NoOpAudioPlayer : AudioPlayer {
-    override fun play(audioPath: String?) = Unit
-    override fun release() = Unit
 }
 
 private class FakePreferencesRepository(initial: Set<Category>) : PreferencesRepository {
@@ -134,9 +98,5 @@ private class FakePreferencesRepository(initial: Set<Category>) : PreferencesRep
 
     override suspend fun setCategoryEnabled(category: Category, enabled: Boolean) {
         state.update { if (enabled) it + category else it - category }
-    }
-
-    fun replace(set: Set<Category>) {
-        state.value = set
     }
 }

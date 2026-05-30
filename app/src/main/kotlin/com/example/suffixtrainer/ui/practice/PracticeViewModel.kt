@@ -2,85 +2,102 @@ package com.example.suffixtrainer.ui.practice
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.suffixtrainer.audio.AudioPlayer
 import com.example.suffixtrainer.data.CardRepository
 import com.example.suffixtrainer.data.PreferencesRepository
 import com.example.suffixtrainer.domain.Card
 import com.example.suffixtrainer.domain.buildDeck
+import com.example.suffixtrainer.domain.isSuffixCorrect
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import kotlin.random.Random
 import javax.inject.Inject
 
-/** Immutable UI state for the Practice screen. The deck is derived, never stored. */
+/**
+ * Immutable UI state for the Practice screen: a single random card the learner fills in.
+ * [inputs] and [results] are indexed in step with [blanks] (reading order).
+ */
 data class PracticeUiState(
-    val deck: List<Card> = emptyList(),
-    val index: Int = 0,
-    val revealed: Boolean = false,
+    val card: Card? = null,
+    val inputs: List<String> = emptyList(),
+    val checked: Boolean = false,
+    val results: List<Boolean> = emptyList(),
 ) {
-    val current: Card? get() = deck.getOrNull(index)
-    val hasPrev: Boolean get() = index > 0
-    val hasNext: Boolean get() = index < deck.size - 1
-    val total: Int get() = deck.size
-
-    /** 1-based position for display; 0 when the deck is empty. */
-    val position: Int get() = if (deck.isEmpty()) 0 else index + 1
+    val blanks get() = card?.blanks ?: emptyList()
 }
 
 /**
- * Owns the Practice deck. The deck is a pure function of (enabled categories, corpus): whenever
- * either changes the deck is recomputed via [buildDeck], so toggling a category in Settings
- * immediately re-filters the deck and changes which suffixes are blanked.
+ * Owns one random practice card at a time. The pool is `buildDeck(corpus, enabledCategories)`;
+ * the shown card is picked at random and replaced on swipe ([newCard]). When the enabled
+ * categories change, the current card is kept if it still belongs to the pool, otherwise a fresh
+ * one is drawn (so disabling its category can't leave a stale/blank card on screen).
  */
 @HiltViewModel
 class PracticeViewModel @Inject constructor(
     cardRepository: CardRepository,
     preferencesRepository: PreferencesRepository,
-    private val audioPlayer: AudioPlayer,
 ) : ViewModel() {
 
-    private val nav = MutableStateFlow(NavState())
+    private val random = Random.Default
+    private var deck: List<Card> = emptyList()
 
-    private val deck = combine(
-        preferencesRepository.enabledCategories,
-        cardRepository.observeCorpus(),
-    ) { enabled, corpus -> buildDeck(corpus, enabled) }
+    private val _uiState = MutableStateFlow(PracticeUiState())
+    val uiState: StateFlow<PracticeUiState> = _uiState.asStateFlow()
 
-    val uiState: StateFlow<PracticeUiState> = combine(deck, nav) { deck, nav ->
-        // Clamp the index defensively: the deck shrinks when categories are disabled.
-        val index = nav.index.coerceIn(0, maxOf(0, deck.size - 1))
-        PracticeUiState(deck = deck, index = index, revealed = nav.revealed)
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = PracticeUiState(),
-    )
-
-    fun next() {
-        val state = uiState.value
-        val target = (state.index + 1).coerceAtMost(maxOf(0, state.deck.size - 1))
-        nav.value = NavState(index = target, revealed = false)
+    init {
+        combine(
+            preferencesRepository.enabledCategories,
+            cardRepository.observeCorpus(),
+        ) { enabled, corpus -> buildDeck(corpus, enabled) }
+            .onEach { newDeck ->
+                deck = newDeck
+                val current = _uiState.value.card
+                when {
+                    newDeck.isEmpty() -> _uiState.value = PracticeUiState()
+                    current == null || newDeck.none { it.sentenceId == current.sentenceId } ->
+                        _uiState.value = freshCard(newDeck)
+                    // else: keep the current card and the learner's in-progress input.
+                }
+            }
+            .launchIn(viewModelScope)
     }
 
-    fun prev() {
-        val target = (uiState.value.index - 1).coerceAtLeast(0)
-        nav.value = NavState(index = target, revealed = false)
+    /** Update one blank's text. Ignored once the card has been checked. */
+    fun onInputChange(index: Int, value: String) {
+        val state = _uiState.value
+        if (state.checked || index !in state.inputs.indices) return
+        _uiState.value = state.copy(
+            inputs = state.inputs.toMutableList().also { it[index] = value },
+        )
     }
 
-    fun toggleReveal() {
-        nav.value = nav.value.copy(revealed = !nav.value.revealed)
+    /** Grade every blank (case-insensitive, trimmed) and reveal the result. */
+    fun check() {
+        val state = _uiState.value
+        val blanks = state.blanks
+        if (state.card == null || state.checked || blanks.isEmpty()) return
+        val results = blanks.indices.map { i ->
+            isSuffixCorrect(state.inputs.getOrElse(i) { "" }, blanks[i].answer)
+        }
+        _uiState.value = state.copy(checked = true, results = results)
     }
 
-    fun playAudio() {
-        audioPlayer.play(uiState.value.current?.audioPath)
+    /** Swipe action: draw a new random card and clear input. */
+    fun newCard() {
+        _uiState.value = if (deck.isEmpty()) PracticeUiState() else freshCard(deck)
     }
 
-    override fun onCleared() {
-        audioPlayer.release()
+    private fun freshCard(fromDeck: List<Card>): PracticeUiState {
+        val previousId = _uiState.value.card?.sentenceId
+        var card = fromDeck[random.nextInt(fromDeck.size)]
+        // Don't show the same card twice in a row when there's an alternative.
+        if (fromDeck.size > 1) {
+            while (card.sentenceId == previousId) card = fromDeck[random.nextInt(fromDeck.size)]
+        }
+        return PracticeUiState(card = card, inputs = List(card.blanks.size) { "" })
     }
-
-    private data class NavState(val index: Int = 0, val revealed: Boolean = false)
 }

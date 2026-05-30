@@ -82,11 +82,8 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
 
-    // DataStore — added per scaffold scope, unused for now
+    // DataStore — backs the enabled-category settings.
     implementation(libs.androidx.datastore.preferences)
-
-    // Media3 (ExoPlayer) — added per scaffold scope, unused for now
-    implementation(libs.androidx.media3.exoplayer)
 
     // Test
     testImplementation(libs.junit)

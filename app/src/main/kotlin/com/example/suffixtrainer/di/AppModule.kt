@@ -5,8 +5,6 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStoreFile
-import com.example.suffixtrainer.audio.AudioPlayer
-import com.example.suffixtrainer.audio.Media3AudioPlayer
 import com.example.suffixtrainer.data.CardRepository
 import com.example.suffixtrainer.data.DataStorePreferencesRepository
 import com.example.suffixtrainer.data.PreferencesRepository
@@ -35,10 +33,6 @@ abstract class AppModule {
     @Binds
     @Singleton
     abstract fun bindPreferencesRepository(impl: DataStorePreferencesRepository): PreferencesRepository
-
-    @Binds
-    @Singleton
-    abstract fun bindAudioPlayer(impl: Media3AudioPlayer): AudioPlayer
 
     companion object {
         @Provides

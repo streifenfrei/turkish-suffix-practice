@@ -12,9 +12,8 @@ data class Card(
     val english: String,
     /** The Turkish line, split into ordered literal/blank segments for inline rendering. */
     val segments: List<CardSegment>,
-    val audioPath: String?,
 ) {
-    /** The suffixes hidden on this card, in reading order — what the reveal control shows. */
+    /** The blanked suffixes, in reading order — one per input field on the card. */
     val blanks: List<CardSegment.Blank>
         get() = segments.filterIsInstance<CardSegment.Blank>()
 }
