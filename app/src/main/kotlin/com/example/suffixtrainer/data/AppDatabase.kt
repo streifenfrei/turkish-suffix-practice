@@ -15,7 +15,7 @@ import com.example.suffixtrainer.model.Token
 @Database(
     entities = [Sentence::class, Token::class, Suffix::class],
     version = 1,
-    exportSchema = false,
+    exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {

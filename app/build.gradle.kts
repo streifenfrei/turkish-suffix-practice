@@ -46,6 +46,13 @@ kotlin {
     jvmToolchain(17)
 }
 
+ksp {
+    // Export Room's schema JSON. This file (schemas/<db FQN>/1.json) is the
+    // contract artifact the :datapipeline reads to emit a byte-for-byte matching
+    // trainer.db (DDL + room_master_table identity hash).
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     implementation(project(":core-model"))
 
@@ -84,6 +91,8 @@ dependencies {
     // Test
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    // Reads the prepackaged trainer.db over JDBC in the golden cross-boundary test.
+    testImplementation(libs.sqlite.jdbc)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

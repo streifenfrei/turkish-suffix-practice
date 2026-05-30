@@ -9,8 +9,8 @@ import com.example.suffixtrainer.audio.AudioPlayer
 import com.example.suffixtrainer.audio.Media3AudioPlayer
 import com.example.suffixtrainer.data.CardRepository
 import com.example.suffixtrainer.data.DataStorePreferencesRepository
-import com.example.suffixtrainer.data.FakeCardRepository
 import com.example.suffixtrainer.data.PreferencesRepository
+import com.example.suffixtrainer.data.RoomCardRepository
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -20,9 +20,9 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
 /**
- * App-level bindings. Currently wires the **fake** in-memory corpus; swapping to the
- * Room-backed implementation later is a one-line change to the [bindCardRepository] binding.
- * The Room `createFromAsset` path (DatabaseModule) is left in place but unused.
+ * App-level bindings. The corpus comes from the prepackaged Room database
+ * ([RoomCardRepository] over DatabaseModule's `createFromAsset`). [FakeCardRepository] is kept
+ * for fake-based UI dev and tests; flip this binding back to it to run without the asset db.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -30,7 +30,7 @@ abstract class AppModule {
 
     @Binds
     @Singleton
-    abstract fun bindCardRepository(impl: FakeCardRepository): CardRepository
+    abstract fun bindCardRepository(impl: RoomCardRepository): CardRepository
 
     @Binds
     @Singleton
