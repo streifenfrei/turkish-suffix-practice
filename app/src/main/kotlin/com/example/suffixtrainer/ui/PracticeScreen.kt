@@ -179,7 +179,7 @@ private fun EmptyDeck(modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = "No cards match the enabled categories.\nEnable some in Settings.",
+            text = "No cards for the selected categories — adjust in Settings.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,

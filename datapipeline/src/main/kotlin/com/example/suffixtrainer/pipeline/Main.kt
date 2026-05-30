@@ -51,6 +51,12 @@ private class CorpusResult(
     /** Ambiguous tokens that had ≥1 suffix we deliberately did not emit as a blank target. */
     val excludedTargetTokens: Int,
     val excludedTargetSuffixes: Int,
+    /**
+     * Diagnostic only: per-category suffix count over all analyzed sentences *before* the
+     * low-confidence exclusion. Compare to the emitted ("after") coverage to see how many
+     * suffixes each category lost to the ambiguity filter. Does not affect what is emitted.
+     */
+    val beforeExclusionCoverage: Map<Category, Int>,
 )
 
 /**
@@ -78,6 +84,7 @@ private class CorpusBuilder(private val config: PipelineConfig) {
         var nextSuffixId = 1L
         var excludedTargetTokens = 0
         var excludedTargetSuffixes = 0
+        val beforeExclusionCoverage = mutableMapOf<Category, Int>()
 
         for (pair in pairs) {
             if (sentences.size >= config.maxSentences) break
@@ -86,6 +93,11 @@ private class CorpusBuilder(private val config: PipelineConfig) {
             if (text.split(WHITESPACE).size > config.maxTokens) continue
 
             val analyzed = analyzer.analyzeSentence(text)
+            // Diagnostic: tally every suffix the analyzer produced (ambiguous or not, kept or
+            // dropped) so we can compare against what survives the exclusion below.
+            for (t in analyzed) {
+                for (s in t.suffixes) beforeExclusionCoverage.merge(s.category, 1, Int::plus)
+            }
             // Keep only sentences with a confident suffix to quiz; ambiguous suffixes
             // are never blank targets so they don't count toward keeping a sentence.
             if (analyzed.none { !it.ambiguous && it.suffixes.isNotEmpty() }) continue
@@ -136,6 +148,7 @@ private class CorpusBuilder(private val config: PipelineConfig) {
         return CorpusResult(
             sentences, tokens, suffixes, report,
             excludedTargetTokens, excludedTargetSuffixes,
+            beforeExclusionCoverage,
         )
     }
 
@@ -152,9 +165,11 @@ private fun printSummary(result: CorpusResult, reportFile: File) {
     println("\n========== SUMMARY ==========")
     println("Sentences (cards): ${result.sentences.size}  (with audio reference: $withAudio)")
     println("Tokens: ${result.tokens.size}   Suffixes: ${result.suffixes.size}")
-    println("Category coverage:")
+    println("Category coverage: after  (before, -excluded by low-confidence)")
     for (category in Category.entries) {
-        println("  ${category.name.padEnd(20)} ${coverage[category] ?: 0}")
+        val after = coverage[category] ?: 0
+        val before = result.beforeExclusionCoverage[category] ?: 0
+        println("  ${category.name.padEnd(20)} $after  (before=$before, -${before - after})")
     }
     println("Low-confidence tokens: ${result.report.count}  ->  ${reportFile.absolutePath}")
     println(

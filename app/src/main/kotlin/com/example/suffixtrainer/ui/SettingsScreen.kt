@@ -75,6 +75,10 @@ private fun ToggleRow(
     toggle: CategoryToggle,
     onToggle: (Category, Boolean) -> Unit,
 ) {
+    // A category with no cards can't be practiced yet: disable its switch but keep the row
+    // (and its "0 cards") visible, just dimmed, so it reads as "exists, no content yet".
+    val hasCards = toggle.count > 0
+    val contentAlpha = if (hasCards) 1f else 0.38f
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -84,17 +88,19 @@ private fun ToggleRow(
         Text(
             text = toggle.label,
             style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
             modifier = Modifier.weight(1f),
         )
         Text(
             text = "${toggle.count} cards",
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha),
             modifier = Modifier.padding(end = 12.dp),
         )
         Switch(
             checked = toggle.enabled,
             onCheckedChange = { onToggle(toggle.category, it) },
+            enabled = hasCards,
         )
     }
 }

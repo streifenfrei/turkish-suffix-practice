@@ -87,6 +87,22 @@ class PracticeViewModelTest {
     }
 
     @Test
+    fun `empty deck when enabled categories produce no cards`() = runTest(dispatcher) {
+        // NOMINATIVE is zero-width: no sample sentence carries it, so the deck is empty.
+        val prefs = FakePreferencesRepository(setOf(Category.NOMINATIVE))
+        val vm = viewModel(prefs)
+        backgroundScope.launchCollect(vm.uiState)
+
+        val state = vm.uiState.value
+        assertTrue("deck should be empty", state.deck.isEmpty())
+        assertEquals(null, state.current)
+        assertEquals(0, state.total)
+        assertEquals(0, state.position)
+        assertFalse(state.hasPrev)
+        assertFalse(state.hasNext)
+    }
+
+    @Test
     fun `index clamps when the deck shrinks`() = runTest(dispatcher) {
         val prefs = FakePreferencesRepository(Category.entries.toSet())
         val vm = viewModel(prefs)
