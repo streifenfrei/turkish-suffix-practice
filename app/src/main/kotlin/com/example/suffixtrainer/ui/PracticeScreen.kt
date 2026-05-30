@@ -16,8 +16,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -31,11 +29,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -54,7 +52,7 @@ import com.example.suffixtrainer.ui.theme.TurkishSuffixPracticeTheme
 import kotlin.math.abs
 
 /** Green used to mark a correct answer (and the shown solution); reads on the dark theme. */
-private val CorrectGreen = Color(0xFF66BB6A)
+private val CorrectGreen = androidx.compose.ui.graphics.Color(0xFF66BB6A)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -133,45 +131,33 @@ private fun PracticeContent(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    text = card.english,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(20.dp))
-                TurkishLine(
-                    state = state,
-                    card = card,
-                    focusRequesters = focusRequesters,
-                    onInput = onInput,
-                    onImeAction = onImeAction,
-                )
-            }
-        }
+        Text(
+            text = card.english,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(24.dp))
+
+        TurkishLine(
+            state = state,
+            card = card,
+            focusRequesters = focusRequesters,
+            onInput = onInput,
+            onImeAction = onImeAction,
+        )
 
         Spacer(Modifier.height(28.dp))
 
-        if (!state.checked) {
-            Button(onClick = onCheck) { Text("Check") }
-            Spacer(Modifier.height(12.dp))
-        }
         Text(
             text = "Swipe for a new card",
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
         )
     }
 }
 
-/** The Turkish line: literal text segments interleaved with editable blank fields, wrapping. */
+/** The Turkish line, directly on the background: literal text with editable blanks, wrapping. */
 @Composable
 private fun TurkishLine(
     state: PracticeUiState,
@@ -181,7 +167,7 @@ private fun TurkishLine(
     onImeAction: (Int) -> Unit,
 ) {
     FlowRow(
-        horizontalArrangement = Arrangement.Start,
+        horizontalArrangement = Arrangement.Center,
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
         var blankIndex = 0
@@ -210,6 +196,11 @@ private fun TurkishLine(
     }
 }
 
+/**
+ * An inline blank that hugs its content, so a filled-in blank reads exactly like the surrounding
+ * sentence. While empty it shows a small underline as a slot marker; once typed it just blends in
+ * (its colour turns green/red after checking). The correct suffix is shown small above when wrong.
+ */
 @Composable
 private fun BlankCell(
     answer: String,
@@ -221,57 +212,54 @@ private fun BlankCell(
     onInput: (String) -> Unit,
     onImeAction: () -> Unit,
 ) {
-    val color = when {
-        !checked -> MaterialTheme.colorScheme.primary
+    val textColor = when {
+        !checked -> MaterialTheme.colorScheme.onSurface
         correct -> CorrectGreen
         else -> MaterialTheme.colorScheme.error
     }
+    val underlineColor = if (checked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+    val style = MaterialTheme.typography.headlineSmall
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        // The correct suffix, shown above only when this blank was answered wrong.
         if (checked && !correct) {
-            Text(
-                text = answer,
-                style = MaterialTheme.typography.labelSmall,
-                color = CorrectGreen,
+            Text(text = answer, style = MaterialTheme.typography.labelSmall, color = CorrectGreen)
+        }
+        // BasicTextField fills its parent's width by default, so size it to content with an
+        // invisible sizer Text: an empty blank is just a small slot; a filled one hugs its text
+        // and reads like the rest of the sentence.
+        Box(
+            modifier = if (input.isEmpty()) Modifier.widthIn(min = 32.dp) else Modifier,
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text = input, style = style, modifier = Modifier.alpha(0f))
+            BasicTextField(
+                value = input,
+                // Stays editable so the keyboard remains up for the Enter-to-advance flow; the
+                // ViewModel ignores input once checked, so the shown answer can't change.
+                onValueChange = onInput,
+                singleLine = true,
+                textStyle = style.copy(color = textColor, textAlign = TextAlign.Center),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(imeAction = imeAction),
+                keyboardActions = KeyboardActions(
+                    onNext = { onImeAction() },
+                    onDone = { onImeAction() },
+                ),
+                modifier = Modifier
+                    .matchParentSize()
+                    .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                    .drawBehind {
+                        if (input.isEmpty()) {
+                            val y = size.height
+                            drawLine(
+                                underlineColor,
+                                Offset(0f, y),
+                                Offset(size.width, y),
+                                strokeWidth = 1.5.dp.toPx(),
+                            )
+                        }
+                    },
             )
         }
-        BasicTextField(
-            value = input,
-            // Not readOnly even after checking: a readOnly field dismisses the keyboard, but we
-            // keep it up so Enter loads the next card. The ViewModel ignores input once checked,
-            // so the shown answer can't actually change.
-            onValueChange = onInput,
-            singleLine = true,
-            textStyle = MaterialTheme.typography.headlineSmall.copy(
-                color = color,
-                textAlign = TextAlign.Center,
-            ),
-            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-            keyboardOptions = KeyboardOptions(imeAction = imeAction),
-            keyboardActions = KeyboardActions(
-                onNext = { onImeAction() },
-                onDone = { onImeAction() },
-            ),
-            modifier = Modifier
-                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-                .widthIn(min = 56.dp)
-                .drawBehind {
-                    val y = size.height
-                    drawLine(color, Offset(0f, y), Offset(size.width, y), strokeWidth = 2.dp.toPx())
-                },
-            decorationBox = { inner ->
-                Box(contentAlignment = Alignment.Center) {
-                    if (input.isEmpty() && !checked) {
-                        Text(
-                            text = "___",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                    inner()
-                }
-            },
-        )
     }
 }
 
