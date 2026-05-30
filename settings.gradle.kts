@@ -19,6 +19,13 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // Zemberek is published to the maintainer's GitHub-hosted Maven repo, not
+        // Maven Central. Scoped to the zemberek-nlp group so all other artifacts
+        // keep resolving from Central/Google. Used only by :datapipeline.
+        maven {
+            url = uri("https://raw.githubusercontent.com/ahmetaa/maven-repo/master")
+            content { includeGroup("zemberek-nlp") }
+        }
     }
 }
 
