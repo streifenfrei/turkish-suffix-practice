@@ -26,6 +26,8 @@ data class PracticeUiState(
     val inputs: List<String> = emptyList(),
     val checked: Boolean = false,
     val results: List<Boolean> = emptyList(),
+    /** Bumped on every card load; the UI keys focus on it so the first blank refocuses per card. */
+    val nonce: Int = 0,
 ) {
     val blanks get() = card?.blanks ?: emptyList()
 }
@@ -44,6 +46,7 @@ class PracticeViewModel @Inject constructor(
 
     private val random = Random.Default
     private var deck: List<Card> = emptyList()
+    private var loadCounter = 0
 
     private val _uiState = MutableStateFlow(PracticeUiState())
     val uiState: StateFlow<PracticeUiState> = _uiState.asStateFlow()
@@ -98,6 +101,6 @@ class PracticeViewModel @Inject constructor(
         if (fromDeck.size > 1) {
             while (card.sentenceId == previousId) card = fromDeck[random.nextInt(fromDeck.size)]
         }
-        return PracticeUiState(card = card, inputs = List(card.blanks.size) { "" })
+        return PracticeUiState(card = card, inputs = List(card.blanks.size) { "" }, nonce = ++loadCounter)
     }
 }
