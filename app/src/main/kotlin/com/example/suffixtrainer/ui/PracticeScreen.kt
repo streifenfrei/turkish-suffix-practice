@@ -230,14 +230,17 @@ private fun BlankCell(
             modifier = if (input.isEmpty()) Modifier.widthIn(min = 32.dp) else Modifier,
             contentAlignment = Alignment.Center,
         ) {
-            Text(text = input, style = style, modifier = Modifier.alpha(0f))
+            // Reserve a few dp past the text for the cursor, so the field never has to scroll
+            // (which would push the first letters left, under the previous word).
+            Text(text = input, style = style, modifier = Modifier.alpha(0f).padding(end = 4.dp))
             BasicTextField(
                 value = input,
                 // Stays editable so the keyboard remains up for the Enter-to-advance flow; the
                 // ViewModel ignores input once checked, so the shown answer can't change.
                 onValueChange = onInput,
                 singleLine = true,
-                textStyle = style.copy(color = textColor, textAlign = TextAlign.Center),
+                // Left-aligned so the suffix stays anchored to the preceding stem as it grows.
+                textStyle = style.copy(color = textColor),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 keyboardOptions = KeyboardOptions(imeAction = imeAction),
                 keyboardActions = KeyboardActions(
