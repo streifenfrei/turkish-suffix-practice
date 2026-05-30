@@ -48,12 +48,18 @@ private class CorpusResult(
     val tokens: List<Token>,
     val suffixes: List<Suffix>,
     val report: LowConfidenceReport,
+    /** Ambiguous tokens that had ≥1 suffix we deliberately did not emit as a blank target. */
+    val excludedTargetTokens: Int,
+    val excludedTargetSuffixes: Int,
 )
 
 /**
  * Pairs → filter → analyze → entity rows. A sentence is kept only if it is short
- * enough and yields at least one blankable suffix (so it can become a practice
- * card). Ids: sentenceId/tatoebaId = Tatoeba id; token & suffix ids are sequential.
+ * enough and yields at least one *confident* blankable suffix (so it can become a
+ * practice card). Suffixes on low-confidence (Zemberek-ambiguous) tokens are never
+ * emitted, so they are never quizzed — the word still appears in the sentence text,
+ * just never as the blank. Ids: sentenceId/tatoebaId = Tatoeba id; token & suffix
+ * ids are sequential.
  */
 private class CorpusBuilder(private val config: PipelineConfig) {
 
@@ -70,6 +76,8 @@ private class CorpusBuilder(private val config: PipelineConfig) {
         val report = LowConfidenceReport()
         var nextTokenId = 1L
         var nextSuffixId = 1L
+        var excludedTargetTokens = 0
+        var excludedTargetSuffixes = 0
 
         for (pair in pairs) {
             if (sentences.size >= config.maxSentences) break
@@ -78,7 +86,9 @@ private class CorpusBuilder(private val config: PipelineConfig) {
             if (text.split(WHITESPACE).size > config.maxTokens) continue
 
             val analyzed = analyzer.analyzeSentence(text)
-            if (analyzed.none { it.suffixes.isNotEmpty() }) continue
+            // Keep only sentences with a confident suffix to quiz; ambiguous suffixes
+            // are never blank targets so they don't count toward keeping a sentence.
+            if (analyzed.none { !it.ambiguous && it.suffixes.isNotEmpty() }) continue
 
             val sentenceId = pair.turkishId
             sentences += Sentence(
@@ -99,25 +109,34 @@ private class CorpusBuilder(private val config: PipelineConfig) {
                     charStart = token.charStart,
                     charEnd = token.charEnd,
                 )
-                for (sfx in token.suffixes) {
-                    suffixes += Suffix(
-                        id = nextSuffixId++,
-                        tokenId = tokenId,
-                        morpheme = sfx.morpheme,
-                        category = sfx.category,
-                        startInSurface = sfx.startInSurface,
-                        endInSurface = sfx.endInSurface,
-                    )
-                }
                 if (token.ambiguous) {
+                    // Low-confidence: log for review and never emit its suffixes as targets.
+                    if (token.suffixes.isNotEmpty()) {
+                        excludedTargetTokens++
+                        excludedTargetSuffixes += token.suffixes.size
+                    }
                     report.record(
                         sentenceId, token.surface, token.lemma,
                         token.suffixes.joinToString(",") { "${it.category}${it.morpheme}" },
                     )
+                } else {
+                    for (sfx in token.suffixes) {
+                        suffixes += Suffix(
+                            id = nextSuffixId++,
+                            tokenId = tokenId,
+                            morpheme = sfx.morpheme,
+                            category = sfx.category,
+                            startInSurface = sfx.startInSurface,
+                            endInSurface = sfx.endInSurface,
+                        )
+                    }
                 }
             }
         }
-        return CorpusResult(sentences, tokens, suffixes, report)
+        return CorpusResult(
+            sentences, tokens, suffixes, report,
+            excludedTargetTokens, excludedTargetSuffixes,
+        )
     }
 
     companion object {
@@ -138,5 +157,9 @@ private fun printSummary(result: CorpusResult, reportFile: File) {
         println("  ${category.name.padEnd(20)} ${coverage[category] ?: 0}")
     }
     println("Low-confidence tokens: ${result.report.count}  ->  ${reportFile.absolutePath}")
+    println(
+        "Excluded as blank target: ${result.excludedTargetTokens} tokens " +
+            "(${result.excludedTargetSuffixes} suffixes)",
+    )
     println("=============================")
 }

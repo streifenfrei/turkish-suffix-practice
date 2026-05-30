@@ -17,14 +17,15 @@ import java.sql.DriverManager
  * :datapipeline from Zemberek-computed spans) and runs the rows through the app's pure
  * [renderCard]. This is the only test that exercises the seam between the pipeline's span
  * convention (`startInSurface`/`endInSurface`) and the app's slicing — if either side drifts,
- * the reconstruction assertion fails.
+ * the reconstruction / span assertions fail. It runs across every row in the shipped corpus.
  */
 class TrainerDbGoldenTest {
 
     @Test
-    fun `every blanked card reconstructs its original Turkish text`() {
+    fun `every blanked card across the real corpus reconstructs its original Turkish text`() {
         val corpus = loadCorpusFromAsset()
-        assertTrue("trainer.db should contain cards", corpus.isNotEmpty())
+        // Guards against accidentally shipping the 5-row dev fixture instead of the real corpus.
+        assertTrue("expected the real corpus (got ${corpus.size} cards)", corpus.size > 50)
 
         for (data in corpus) {
             val card = renderCard(data, Category.entries.toSet())
@@ -46,8 +47,49 @@ class TrainerDbGoldenTest {
     }
 
     @Test
-    fun `known fixture sentence blanks the locative suffix at the right span`() {
-        val data = loadCorpusFromAsset().first { it.sentence.turkishText == "Evde kal." }
+    fun `every suffix span in the db points at its morpheme surface`() {
+        var checked = 0
+        val db = trainerDbFile()
+        DriverManager.getConnection("jdbc:sqlite:${db.absolutePath}").use { conn ->
+            conn.createStatement().use { st ->
+                st.executeQuery(
+                    "SELECT t.surface AS surface, s.morpheme AS morpheme, " +
+                        "s.startInSurface AS startInSurface, s.endInSurface AS endInSurface " +
+                        "FROM suffixes s JOIN tokens t ON t.id = s.tokenId",
+                ).use { rs ->
+                    while (rs.next()) {
+                        val surface = rs.getString("surface")
+                        val morpheme = rs.getString("morpheme")
+                        val start = rs.getInt("startInSurface")
+                        val end = rs.getInt("endInSurface")
+                        assertTrue("bad span [$start,$end) on '$surface'", start in 0 until end && end <= surface.length)
+                        // Pipeline stores morpheme as "-" + surface.substring(start, end), half-open.
+                        assertEquals(
+                            "span text mismatch on '$surface'",
+                            morpheme.removePrefix("-"),
+                            surface.substring(start, end),
+                        )
+                        checked++
+                    }
+                }
+            }
+        }
+        assertTrue("expected many suffixes (got $checked)", checked > 50)
+    }
+
+    @Test
+    fun `known worked example blanks the locative suffix at the right span`() {
+        // "Evde kal." is the dev-fixture sentence, not part of the real corpus, so this CardData
+        // is built inline — a deterministic worked example of the half-open span rendering.
+        val data = CardData(
+            sentence = Sentence(1, "Evde kal.", "Stay home.", null, 1),
+            tokens = listOf(
+                TokenWithSuffixes(
+                    token = Token(1, 1, 0, "Evde", "ev", 0, 4),
+                    suffixes = listOf(Suffix(1, 1, "-de", Category.LOCATIVE, 2, 4)),
+                ),
+            ),
+        )
         val card = renderCard(data, Category.entries.toSet())!!
         assertEquals(
             listOf(

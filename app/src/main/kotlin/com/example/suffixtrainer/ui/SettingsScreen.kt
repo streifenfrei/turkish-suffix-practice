@@ -86,6 +86,12 @@ private fun ToggleRow(
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.weight(1f),
         )
+        Text(
+            text = "${toggle.count} cards",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(end = 12.dp),
+        )
         Switch(
             checked = toggle.enabled,
             onCheckedChange = { onToggle(toggle.category, it) },
@@ -97,8 +103,12 @@ private fun ToggleRow(
 @Composable
 private fun SettingsScreenPreview() {
     val sample = SettingsUiState(
-        cases = CASE_CATEGORIES.map { CategoryToggle(it, it.displayLabel(), it != Category.NOMINATIVE) },
-        tenses = TENSE_CATEGORIES.map { CategoryToggle(it, it.displayLabel(), true) },
+        cases = CASE_CATEGORIES.mapIndexed { i, c ->
+            CategoryToggle(c, c.displayLabel(), c != Category.NOMINATIVE, count = i * 17)
+        },
+        tenses = TENSE_CATEGORIES.mapIndexed { i, c ->
+            CategoryToggle(c, c.displayLabel(), true, count = 40 - i * 5)
+        },
     )
     TurkishSuffixPracticeTheme {
         SettingsContent(state = sample, onToggle = { _, _ -> })

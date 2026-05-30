@@ -2,7 +2,9 @@ package com.example.suffixtrainer.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.suffixtrainer.data.CardRepository
 import com.example.suffixtrainer.data.PreferencesRepository
+import com.example.suffixtrainer.domain.cardCountByCategory
 import com.example.suffixtrainer.model.Category
 import com.example.suffixtrainer.ui.CASE_CATEGORIES
 import com.example.suffixtrainer.ui.TENSE_CATEGORIES
@@ -10,16 +12,17 @@ import com.example.suffixtrainer.ui.displayLabel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/** One toggle row in Settings. */
+/** One toggle row in Settings. [count] is how many cards exist for this category. */
 data class CategoryToggle(
     val category: Category,
     val label: String,
     val enabled: Boolean,
+    val count: Int,
 )
 
 /** Immutable UI state for the Settings screen: the two grouped sections of toggles. */
@@ -36,15 +39,19 @@ data class SettingsUiState(
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val preferencesRepository: PreferencesRepository,
+    cardRepository: CardRepository,
 ) : ViewModel() {
 
-    val uiState: StateFlow<SettingsUiState> = preferencesRepository.enabledCategories
-        .map { enabled ->
-            SettingsUiState(
-                cases = CASE_CATEGORIES.map { it.toToggle(it in enabled) },
-                tenses = TENSE_CATEGORIES.map { it.toToggle(it in enabled) },
-            )
-        }
+    val uiState: StateFlow<SettingsUiState> = combine(
+        preferencesRepository.enabledCategories,
+        cardRepository.observeCorpus(),
+    ) { enabled, corpus ->
+        val counts = cardCountByCategory(corpus)
+        SettingsUiState(
+            cases = CASE_CATEGORIES.map { it.toToggle(it in enabled, counts[it] ?: 0) },
+            tenses = TENSE_CATEGORIES.map { it.toToggle(it in enabled, counts[it] ?: 0) },
+        )
+    }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
@@ -57,5 +64,6 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    private fun Category.toToggle(enabled: Boolean) = CategoryToggle(this, displayLabel(), enabled)
+    private fun Category.toToggle(enabled: Boolean, count: Int) =
+        CategoryToggle(this, displayLabel(), enabled, count)
 }
