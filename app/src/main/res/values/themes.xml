@@ -1,0 +1,6 @@
+<resources>
+    <!-- Base theme for the Activity window. Compose (Theme.kt) supplies the real
+         Material 3 theme; this only needs to be a no-action-bar platform theme so
+         the window has no title bar and we don't depend on the Views Material lib. -->
+    <style name="Theme.TurkishSuffixPractice" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
