@@ -13,3 +13,5 @@
 .externalNativeBuild
 .cxx
 local.properties
+# Translation API keys for the data pipeline — never commit.
+local.*.key

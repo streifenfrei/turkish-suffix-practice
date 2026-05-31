@@ -8,48 +8,46 @@ import com.example.suffixtrainer.model.Category
  * categories, produce the rendered [Card] — or `null` if the sentence has no suffix in an
  * enabled category (such cards are filtered out of the deck).
  *
- * A suffix's surface span is relative to its token (`startInSurface`/`endInSurface`); its
- * absolute span in the sentence text is `token.charStart + startInSurface ..
- * token.charStart + endInSurface`. Every enabled suffix is blanked.
+ * The line is grouped by token, so each [CardPiece.Word] is a pressable unit carrying its lemma;
+ * text between tokens (spaces, punctuation) becomes a [CardPiece.Separator]. Within a token, each
+ * enabled suffix's surface span (`startInSurface`/`endInSurface`, absolute = `token.charStart +`)
+ * is blanked.
  */
 fun renderCard(data: CardData, enabled: Set<Category>): Card? {
     val text = data.sentence.turkishText
+    val pieces = mutableListOf<CardPiece>()
+    var cursor = 0
+    var hasBlank = false
 
-    val spans = data.tokens
-        .flatMap { (token, suffixes) ->
-            suffixes
-                .filter { it.category in enabled }
-                .map { suffix ->
-                    BlankSpan(
-                        start = token.charStart + suffix.startInSurface,
-                        end = token.charStart + suffix.endInSurface,
-                        category = suffix.category,
-                    )
-                }
-        }
-        .sortedBy { it.start }
+    for ((token, suffixes) in data.tokens.sortedBy { it.token.charStart }) {
+        val start = token.charStart.coerceIn(0, text.length)
+        val end = token.charEnd.coerceIn(start, text.length)
+        if (start > cursor) pieces += CardPiece.Separator(text.substring(cursor, start))
 
-    if (spans.isEmpty()) return null
+        val spans = suffixes
+            .filter { it.category in enabled }
+            .map { BlankSpan(token.charStart + it.startInSurface, token.charStart + it.endInSurface, it.category) }
+            .sortedBy { it.start }
 
-    val segments = buildList {
-        var cursor = 0
-        for (span in spans) {
-            if (span.start > cursor) {
-                add(CardSegment.Text(text.substring(cursor, span.start)))
+        val parts = buildList {
+            var c = start
+            for (span in spans) {
+                val bStart = span.start.coerceIn(start, end)
+                val bEnd = span.end.coerceIn(bStart, end)
+                if (bStart > c) add(CardSegment.Text(text.substring(c, bStart)))
+                add(CardSegment.Blank(text.substring(bStart, bEnd), span.category))
+                hasBlank = true
+                c = bEnd
             }
-            add(CardSegment.Blank(text.substring(span.start, span.end), span.category))
-            cursor = span.end
+            if (c < end) add(CardSegment.Text(text.substring(c, end)))
         }
-        if (cursor < text.length) {
-            add(CardSegment.Text(text.substring(cursor)))
-        }
+        pieces += CardPiece.Word(surface = token.surface, lemma = token.lemma, parts = parts)
+        cursor = end
     }
+    if (cursor < text.length) pieces += CardPiece.Separator(text.substring(cursor))
 
-    return Card(
-        sentenceId = data.sentence.id,
-        english = data.sentence.englishText,
-        segments = segments,
-    )
+    if (!hasBlank) return null
+    return Card(sentenceId = data.sentence.id, english = data.sentence.englishText, pieces = pieces)
 }
 
 /**

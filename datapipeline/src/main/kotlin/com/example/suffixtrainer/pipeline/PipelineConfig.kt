@@ -34,9 +34,20 @@ data class PipelineConfig(
      */
     val devMode: Boolean = false,
     val fixtureDir: File = File("src/test/resources/fixture"),
+
+    /** Translation provider for word glosses: `deepl` or `google`. Key is read from env. */
+    val translator: String = "deepl",
+    /** Skip gloss translation entirely (offline / dev runs). Implied by [devMode]. */
+    val noGlosses: Boolean = false,
 ) {
+    /** Whether to generate word-translation glosses this run. */
+    val generateGlosses: Boolean get() = !noGlosses && !devMode
+
     companion object {
-        /** Parses CLI args: `--max N`, `--dev`, `--cache DIR`, `--out DIR`, `--schema FILE`. */
+        /**
+         * Parses CLI args: `--max N`, `--dev`, `--cache DIR`, `--out DIR`, `--schema FILE`,
+         * `--translator deepl|google`, `--no-glosses`.
+         */
         fun fromArgs(args: Array<String>): PipelineConfig {
             var cfg = PipelineConfig()
             var i = 0
@@ -47,6 +58,8 @@ data class PipelineConfig(
                     "--cache" -> cfg = cfg.copy(cacheDir = File(args[++i]))
                     "--out" -> cfg = cfg.copy(outputDir = File(args[++i]))
                     "--schema" -> cfg = cfg.copy(schemaJson = File(args[++i]))
+                    "--translator" -> cfg = cfg.copy(translator = args[++i])
+                    "--no-glosses" -> cfg = cfg.copy(noGlosses = true)
                     else -> error("Unknown argument: ${args[i]}")
                 }
                 i++

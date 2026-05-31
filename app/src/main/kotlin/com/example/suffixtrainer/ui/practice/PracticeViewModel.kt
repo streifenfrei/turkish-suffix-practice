@@ -3,6 +3,7 @@ package com.example.suffixtrainer.ui.practice
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.suffixtrainer.data.CardRepository
+import com.example.suffixtrainer.data.GlossRepository
 import com.example.suffixtrainer.data.PreferencesRepository
 import com.example.suffixtrainer.domain.Card
 import com.example.suffixtrainer.domain.buildDeck
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 import kotlin.random.Random
 import javax.inject.Inject
 
@@ -42,6 +44,7 @@ data class PracticeUiState(
 class PracticeViewModel @Inject constructor(
     cardRepository: CardRepository,
     preferencesRepository: PreferencesRepository,
+    glossRepository: GlossRepository,
 ) : ViewModel() {
 
     private val random = Random.Default
@@ -51,7 +54,13 @@ class PracticeViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(PracticeUiState())
     val uiState: StateFlow<PracticeUiState> = _uiState.asStateFlow()
 
+    /** lemma → English gloss, loaded once for the per-word translation tooltips. */
+    private val _glosses = MutableStateFlow<Map<String, String>>(emptyMap())
+    val glosses: StateFlow<Map<String, String>> = _glosses.asStateFlow()
+
     init {
+        viewModelScope.launch { _glosses.value = glossRepository.all() }
+
         combine(
             preferencesRepository.enabledCategories,
             cardRepository.observeCorpus(),

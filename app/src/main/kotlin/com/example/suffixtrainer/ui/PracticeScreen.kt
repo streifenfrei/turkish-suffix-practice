@@ -2,10 +2,12 @@ package com.example.suffixtrainer.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -22,13 +24,18 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -39,6 +46,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -46,15 +54,19 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.suffixtrainer.domain.Card as PracticeCard
+import com.example.suffixtrainer.domain.CardPiece
 import com.example.suffixtrainer.domain.CardSegment
 import com.example.suffixtrainer.model.Category
 import com.example.suffixtrainer.ui.practice.PracticeUiState
 import com.example.suffixtrainer.ui.practice.PracticeViewModel
 import com.example.suffixtrainer.ui.theme.TurkishSuffixPracticeTheme
+import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.abs
 
 /** Green used to mark a correct answer (and the shown solution); reads on the dark theme. */
 private val CorrectGreen = androidx.compose.ui.graphics.Color(0xFF66BB6A)
+private val TR: Locale = Locale.forLanguageTag("tr")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,6 +76,7 @@ fun PracticeScreen(
     viewModel: PracticeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val glosses by viewModel.glosses.collectAsStateWithLifecycle()
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -79,6 +92,7 @@ fun PracticeScreen(
     ) { innerPadding ->
         PracticeContent(
             state = state,
+            glosses = glosses,
             onInput = viewModel::onInputChange,
             onCheck = viewModel::check,
             onNewCard = viewModel::newCard,
@@ -90,6 +104,7 @@ fun PracticeScreen(
 @Composable
 private fun PracticeContent(
     state: PracticeUiState,
+    glosses: Map<String, String>,
     onInput: (Int, String) -> Unit,
     onCheck: () -> Unit,
     onNewCard: () -> Unit,
@@ -146,6 +161,7 @@ private fun PracticeContent(
         TurkishLine(
             state = state,
             card = card,
+            glosses = glosses,
             focusRequesters = focusRequesters,
             onInput = onInput,
             onImeAction = onImeAction,
@@ -153,42 +169,91 @@ private fun PracticeContent(
     }
 }
 
-/** The Turkish line, directly on the background: literal text with editable blanks, wrapping. */
+/**
+ * The Turkish line, directly on the background. Each [CardPiece.Word] is rendered as an inline
+ * row of its literal/blank parts; literal parts are press-and-hold targets that show the word's
+ * translation. Separators (spaces/punctuation) are plain text.
+ */
 @Composable
 private fun TurkishLine(
     state: PracticeUiState,
     card: PracticeCard,
+    glosses: Map<String, String>,
     focusRequesters: List<FocusRequester>,
     onInput: (Int, String) -> Unit,
     onImeAction: (Int) -> Unit,
 ) {
+    val style = MaterialTheme.typography.headlineMedium
     FlowRow(
         horizontalArrangement = Arrangement.Center,
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
         var blankIndex = 0
-        card.segments.forEach { segment ->
-            when (segment) {
-                is CardSegment.Text -> Text(
-                    text = segment.text,
-                    style = MaterialTheme.typography.headlineMedium,
-                )
+        card.pieces.forEach { piece ->
+            when (piece) {
+                is CardPiece.Separator -> Text(text = piece.text, style = style)
 
-                is CardSegment.Blank -> {
-                    val i = blankIndex++
-                    BlankCell(
-                        answer = segment.answer,
-                        input = state.inputs.getOrElse(i) { "" },
-                        checked = state.checked,
-                        correct = state.results.getOrElse(i) { false },
-                        focusRequester = focusRequesters.getOrNull(i),
-                        imeAction = if (i == card.blanks.lastIndex) ImeAction.Done else ImeAction.Next,
-                        onInput = { onInput(i, it) },
-                        onImeAction = { onImeAction(i) },
-                    )
+                is CardPiece.Word -> {
+                    val gloss = glosses[piece.lemma.lowercase(TR)]
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        piece.parts.forEach { part ->
+                            when (part) {
+                                is CardSegment.Text -> TooltipWord(part.text, piece.lemma, gloss, style)
+
+                                is CardSegment.Blank -> {
+                                    val i = blankIndex++
+                                    BlankCell(
+                                        answer = part.answer,
+                                        input = state.inputs.getOrElse(i) { "" },
+                                        checked = state.checked,
+                                        correct = state.results.getOrElse(i) { false },
+                                        focusRequester = focusRequesters.getOrNull(i),
+                                        imeAction = if (i == card.blanks.lastIndex) ImeAction.Done else ImeAction.Next,
+                                        onInput = { onInput(i, it) },
+                                        onImeAction = { onImeAction(i) },
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+/**
+ * A literal word part. While pressed-and-held it shows a tooltip with the word's translation
+ * (`<lemma> — <gloss>`), dismissed on release. Words with no bundled gloss render as plain text.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TooltipWord(text: String, lemma: String, gloss: String?, style: TextStyle) {
+    if (gloss.isNullOrBlank()) {
+        Text(text = text, style = style)
+        return
+    }
+    val tooltipState = rememberTooltipState(isPersistent = true)
+    val scope = rememberCoroutineScope()
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text("$lemma — $gloss") } },
+        state = tooltipState,
+        enableUserInput = false, // we drive show/dismiss from the press below
+    ) {
+        Text(
+            text = text,
+            style = style,
+            modifier = Modifier.pointerInput(gloss) {
+                detectTapGestures(
+                    onPress = {
+                        scope.launch { tooltipState.show() }
+                        tryAwaitRelease()
+                        tooltipState.dismiss()
+                    },
+                )
+            },
+        )
     }
 }
 
@@ -285,14 +350,25 @@ private fun EmptyDeck(modifier: Modifier = Modifier) {
 private val SAMPLE_CARD = PracticeCard(
     sentenceId = 1,
     english = "I stayed at home",
-    segments = listOf(
-        CardSegment.Text("Ev"),
-        CardSegment.Blank("de", Category.LOCATIVE),
-        CardSegment.Text(" kal"),
-        CardSegment.Blank("dı", Category.PAST_DEFINITE),
-        CardSegment.Text("m."),
+    pieces = listOf(
+        CardPiece.Word(
+            "Evde", "ev",
+            listOf(CardSegment.Text("Ev"), CardSegment.Blank("de", Category.LOCATIVE)),
+        ),
+        CardPiece.Separator(" "),
+        CardPiece.Word(
+            "kaldım", "kal",
+            listOf(
+                CardSegment.Text("kal"),
+                CardSegment.Blank("dı", Category.PAST_DEFINITE),
+                CardSegment.Text("m"),
+            ),
+        ),
+        CardPiece.Separator("."),
     ),
 )
+
+private val SAMPLE_GLOSSES = mapOf("ev" to "house", "kal" to "stay")
 
 @Preview(showBackground = true, name = "Practice — typing")
 @Composable
@@ -300,6 +376,7 @@ private fun PracticeScreenPreview() {
     TurkishSuffixPracticeTheme {
         PracticeContent(
             state = PracticeUiState(card = SAMPLE_CARD, inputs = listOf("de", "")),
+            glosses = SAMPLE_GLOSSES,
             onInput = { _, _ -> },
             onCheck = {},
             onNewCard = {},
@@ -318,6 +395,7 @@ private fun PracticeScreenCheckedPreview() {
                 checked = true,
                 results = listOf(true, false),
             ),
+            glosses = SAMPLE_GLOSSES,
             onInput = { _, _ -> },
             onCheck = {},
             onNewCard = {},

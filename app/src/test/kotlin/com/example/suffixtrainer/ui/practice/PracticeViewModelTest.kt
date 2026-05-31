@@ -1,6 +1,7 @@
 package com.example.suffixtrainer.ui.practice
 
 import com.example.suffixtrainer.data.FakeCardRepository
+import com.example.suffixtrainer.data.GlossRepository
 import com.example.suffixtrainer.data.PreferencesRepository
 import com.example.suffixtrainer.model.Category
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +38,7 @@ class PracticeViewModelTest {
     }
 
     private fun viewModel(prefs: FakePreferencesRepository) =
-        PracticeViewModel(FakeCardRepository(), prefs)
+        PracticeViewModel(FakeCardRepository(), prefs, FakeGlossRepository)
 
     @Test
     fun `empty deck shows no card when enabled categories produce nothing`() = runTest(dispatcher) {
@@ -90,6 +91,11 @@ class PracticeViewModelTest {
         assertEquals(listOf(""), state.inputs) // single blank, reset to empty
         assertEquals("de", state.card!!.blanks.single().answer)
     }
+}
+
+private object FakeGlossRepository : GlossRepository {
+    override suspend fun glossFor(lemma: String): String? = null
+    override suspend fun all(): Map<String, String> = emptyMap()
 }
 
 private class FakePreferencesRepository(initial: Set<Category>) : PreferencesRepository {

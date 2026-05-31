@@ -20,6 +20,7 @@ class DbWriter(private val schema: RoomSchema) {
         sentences: List<Sentence>,
         tokens: List<Token>,
         suffixes: List<Suffix>,
+        glosses: Map<String, String> = emptyMap(),
     ) {
         outputFile.parentFile?.mkdirs()
         outputFile.delete()
@@ -34,10 +35,31 @@ class DbWriter(private val schema: RoomSchema) {
             insertSentences(conn, sentences)
             insertTokens(conn, tokens)
             insertSuffixes(conn, suffixes)
+            insertGlosses(conn, glosses)
             conn.commit()
 
             conn.autoCommit = true
             conn.createStatement().use { it.executeUpdate("VACUUM") }
+        }
+    }
+
+    /**
+     * Word translations. A plain SQLite table that is NOT part of the Room schema, so it does not
+     * affect the identity hash; the app reads it with `@SkipQueryVerification`. Created even when
+     * empty so the app's query never hits a missing table.
+     */
+    private fun insertGlosses(conn: Connection, glosses: Map<String, String>) {
+        conn.createStatement().use {
+            it.executeUpdate("CREATE TABLE IF NOT EXISTS glosses (lemma TEXT PRIMARY KEY, gloss TEXT)")
+        }
+        if (glosses.isEmpty()) return
+        conn.prepareStatement("INSERT OR REPLACE INTO glosses (lemma, gloss) VALUES (?, ?)").use { ps ->
+            for ((lemma, gloss) in glosses) {
+                ps.setString(1, lemma)
+                ps.setString(2, gloss)
+                ps.addBatch()
+            }
+            ps.executeBatch()
         }
     }
 

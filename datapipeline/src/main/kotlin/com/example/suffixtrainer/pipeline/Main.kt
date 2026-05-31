@@ -9,7 +9,9 @@ import com.example.suffixtrainer.pipeline.db.SchemaProvider
 import com.example.suffixtrainer.pipeline.morph.MorphologyAnalyzer
 import com.example.suffixtrainer.pipeline.report.LowConfidenceReport
 import com.example.suffixtrainer.pipeline.tatoeba.TatoebaIngest
+import com.example.suffixtrainer.pipeline.translate.GlossGenerator
 import java.io.File
+import java.util.Locale
 
 /**
  * Offline pipeline: Tatoeba ingest → Zemberek analysis → `trainer.db`.
@@ -32,9 +34,18 @@ fun main(args: Array<String>) {
         )
     }
 
+    val glosses = if (config.generateGlosses) {
+        println("\nGenerating word glosses…")
+        GlossGenerator(config).generate(corpus.uniqueLemmas)
+    } else {
+        println("\nSkipping glosses (dev/--no-glosses).")
+        emptyMap()
+    }
+
     val dbFile = File(config.outputDir, "trainer.db")
-    DbWriter(schema).write(dbFile, corpus.sentences, corpus.tokens, corpus.suffixes)
+    DbWriter(schema).write(dbFile, corpus.sentences, corpus.tokens, corpus.suffixes, glosses)
     println("Wrote ${dbFile.absolutePath} (${dbFile.length() / 1024} KiB)")
+    println("Glosses: ${glosses.size} of ${corpus.uniqueLemmas.size} lemmas")
 
     val reportFile = File(config.outputDir, "low-confidence.tsv")
     corpus.report.writeTo(reportFile)
@@ -57,6 +68,8 @@ private class CorpusResult(
      * suffixes each category lost to the ambiguity filter. Does not affect what is emitted.
      */
     val beforeExclusionCoverage: Map<Category, Int>,
+    /** Distinct token lemmas (Turkish-lowercased) — the keys to translate for word tooltips. */
+    val uniqueLemmas: Set<String>,
 )
 
 /**
@@ -85,6 +98,7 @@ private class CorpusBuilder(private val config: PipelineConfig) {
         var excludedTargetTokens = 0
         var excludedTargetSuffixes = 0
         val beforeExclusionCoverage = mutableMapOf<Category, Int>()
+        val uniqueLemmas = sortedSetOf<String>()
 
         for (pair in pairs) {
             if (sentences.size >= config.maxSentences) break
@@ -121,6 +135,7 @@ private class CorpusBuilder(private val config: PipelineConfig) {
                     charStart = token.charStart,
                     charEnd = token.charEnd,
                 )
+                if (token.lemma.isNotBlank()) uniqueLemmas += token.lemma.lowercase(TR)
                 if (token.ambiguous) {
                     // Low-confidence: log for review and never emit its suffixes as targets.
                     if (token.suffixes.isNotEmpty()) {
@@ -148,13 +163,14 @@ private class CorpusBuilder(private val config: PipelineConfig) {
         return CorpusResult(
             sentences, tokens, suffixes, report,
             excludedTargetTokens, excludedTargetSuffixes,
-            beforeExclusionCoverage,
+            beforeExclusionCoverage, uniqueLemmas,
         )
     }
 
     companion object {
         private val WHITESPACE = Regex("\\s+")
         private const val AUDIO_URL_PREFIX = "https://tatoeba.org/audio/download/"
+        private val TR: Locale = Locale.forLanguageTag("tr")
     }
 }
 
