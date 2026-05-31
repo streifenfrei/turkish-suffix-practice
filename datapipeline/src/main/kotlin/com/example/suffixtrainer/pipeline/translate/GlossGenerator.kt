@@ -3,6 +3,7 @@ package com.example.suffixtrainer.pipeline.translate
 import com.example.suffixtrainer.pipeline.PipelineConfig
 import org.json.JSONObject
 import java.io.File
+import java.util.Locale
 
 /**
  * Produces a `lemma → English gloss` map for the corpus. Results are cached to
@@ -32,8 +33,9 @@ class GlossGenerator(private val config: PipelineConfig) {
             }
         }
 
+        // Lowercase glosses (DeepL capitalises some single words) for a consistent tooltip look.
         return lemmas.mapNotNull { lemma ->
-            cache[lemma]?.takeIf { it.isNotBlank() }?.let { lemma to it }
+            cache[lemma]?.takeIf { it.isNotBlank() }?.let { lemma to it.lowercase(Locale.ENGLISH) }
         }.toMap()
     }
 
