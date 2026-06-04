@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -79,22 +80,55 @@ class PracticeViewModelTest {
     }
 
     @Test
-    fun `newCard clears input and check state`() = runTest(dispatcher) {
+    fun `nextCard clears input and check state`() = runTest(dispatcher) {
         val vm = viewModel(FakePreferencesRepository(setOf(Category.LOCATIVE)))
         vm.onInputChange(0, "de")
         vm.check()
 
-        vm.newCard()
+        vm.nextCard()
         val state = vm.uiState.value
         assertFalse(state.checked)
         assertTrue(state.results.isEmpty())
         assertEquals(listOf(""), state.inputs) // single blank, reset to empty
         assertEquals("de", state.card!!.blanks.single().answer)
     }
+
+    @Test
+    fun `previousCard revisits the prior card`() = runTest(dispatcher) {
+        // PAST_DEFINITE spans several sample sentences, so the deck has more than one card.
+        val vm = viewModel(FakePreferencesRepository(setOf(Category.PAST_DEFINITE)))
+        val first = vm.uiState.value.card!!.sentenceId
+
+        vm.nextCard()
+        val second = vm.uiState.value.card!!.sentenceId
+        assertNotEquals(first, second) // never repeats the current card in a row
+
+        vm.previousCard()
+        assertEquals(first, vm.uiState.value.card!!.sentenceId)
+
+        // Going forward again returns to the same already-seen second card (history, not re-drawn).
+        vm.nextCard()
+        assertEquals(second, vm.uiState.value.card!!.sentenceId)
+    }
+
+    @Test
+    fun `previousCard is a no-op at the start of history`() = runTest(dispatcher) {
+        val vm = viewModel(FakePreferencesRepository(setOf(Category.PAST_DEFINITE)))
+        val first = vm.uiState.value.card!!.sentenceId
+        vm.previousCard()
+        assertEquals(first, vm.uiState.value.card!!.sentenceId)
+    }
+
+    @Test
+    fun `blank input is capped at the longest suffix length`() = runTest(dispatcher) {
+        val vm = viewModel(FakePreferencesRepository(setOf(Category.LOCATIVE)))
+        vm.onInputChange(0, "abcdef")
+        assertEquals(listOf("abcd"), vm.uiState.value.inputs) // capped to 4 chars
+    }
 }
 
 private object FakeGlossRepository : GlossRepository {
-    override suspend fun glossFor(lemma: String): String? = null
+    override suspend fun glossFor(word: String): String? = null
     override suspend fun all(): Map<String, String> = emptyMap()
 }
 
@@ -104,5 +138,12 @@ private class FakePreferencesRepository(initial: Set<Category>) : PreferencesRep
 
     override suspend fun setCategoryEnabled(category: Category, enabled: Boolean) {
         state.update { if (enabled) it + category else it - category }
+    }
+
+    private val glossesShown = MutableStateFlow(false)
+    override val showGlosses: StateFlow<Boolean> = glossesShown.asStateFlow()
+
+    override suspend fun setShowGlosses(enabled: Boolean) {
+        glossesShown.value = enabled
     }
 }

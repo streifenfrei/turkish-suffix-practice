@@ -5,9 +5,10 @@ import com.example.suffixtrainer.model.Category
 /**
  * A practice card — derived from a [com.example.suffixtrainer.model.Sentence] and its
  * morphology for a given set of enabled categories. The line is a list of [pieces]: pressable
- * [CardPiece.Word]s (one per token, carrying its [CardPiece.Word.lemma] for translation lookup)
- * and non-pressable [CardPiece.Separator]s (spaces/punctuation). Cards are never stored; they
- * are recomputed whenever the enabled categories or the corpus change (see [renderCard]).
+ * [CardPiece.Word]s (one per token, carrying its [CardPiece.Word.surface] — the key for translation
+ * lookup — and its [CardPiece.Word.lemma] root) and non-pressable [CardPiece.Separator]s
+ * (spaces/punctuation). Cards are never stored; they are recomputed whenever the enabled categories
+ * or the corpus change (see [renderCard]).
  */
 data class Card(
     val sentenceId: Long,
@@ -29,8 +30,8 @@ data class Card(
 /** A piece of the rendered Turkish line. */
 sealed interface CardPiece {
     /**
-     * One word (a token). [surface] is the word as written; [lemma] is its root, used to look up
-     * the translation; [parts] are the literal/blank pieces that compose it.
+     * One word (a token). [surface] is the word as written, used to look up the full translation;
+     * [lemma] is its root; [parts] are the literal/blank pieces that compose it.
      */
     data class Word(val surface: String, val lemma: String, val parts: List<CardSegment>) : CardPiece
 

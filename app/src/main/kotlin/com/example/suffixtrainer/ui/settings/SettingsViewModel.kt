@@ -29,6 +29,8 @@ data class CategoryToggle(
 data class SettingsUiState(
     val cases: List<CategoryToggle> = emptyList(),
     val tenses: List<CategoryToggle> = emptyList(),
+    /** Whether the "show word translations above each word" display option is on. */
+    val showGlosses: Boolean = false,
 )
 
 /**
@@ -45,11 +47,13 @@ class SettingsViewModel @Inject constructor(
     val uiState: StateFlow<SettingsUiState> = combine(
         preferencesRepository.enabledCategories,
         cardRepository.observeCorpus(),
-    ) { enabled, corpus ->
+        preferencesRepository.showGlosses,
+    ) { enabled, corpus, showGlosses ->
         val counts = cardCountByCategory(corpus)
         SettingsUiState(
             cases = CASE_CATEGORIES.map { it.toToggle(it in enabled, counts[it] ?: 0) },
             tenses = TENSE_CATEGORIES.map { it.toToggle(it in enabled, counts[it] ?: 0) },
+            showGlosses = showGlosses,
         )
     }
         .stateIn(
@@ -61,6 +65,12 @@ class SettingsViewModel @Inject constructor(
     fun toggle(category: Category, enabled: Boolean) {
         viewModelScope.launch {
             preferencesRepository.setCategoryEnabled(category, enabled)
+        }
+    }
+
+    fun setShowGlosses(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setShowGlosses(enabled)
         }
     }
 

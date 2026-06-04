@@ -2,6 +2,7 @@ package com.example.suffixtrainer.data
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.example.suffixtrainer.model.Category
@@ -45,7 +46,15 @@ class DataStorePreferencesRepository @Inject constructor(
         }
     }
 
+    override val showGlosses: Flow<Boolean> =
+        dataStore.data.map { prefs -> prefs[SHOW_GLOSSES_KEY] ?: false }
+
+    override suspend fun setShowGlosses(enabled: Boolean) {
+        dataStore.edit { prefs -> prefs[SHOW_GLOSSES_KEY] = enabled }
+    }
+
     private companion object {
         val ENABLED_CATEGORIES_KEY = stringSetPreferencesKey("enabled_categories")
+        val SHOW_GLOSSES_KEY = booleanPreferencesKey("show_glosses")
     }
 }

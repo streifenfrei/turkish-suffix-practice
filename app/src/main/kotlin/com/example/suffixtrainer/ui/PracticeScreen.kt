@@ -62,7 +62,6 @@ import com.example.suffixtrainer.ui.practice.PracticeViewModel
 import com.example.suffixtrainer.ui.theme.TurkishSuffixPracticeTheme
 import kotlinx.coroutines.launch
 import java.util.Locale
-import kotlin.math.abs
 
 /** Green used to mark a correct answer (and the shown solution); reads on the dark theme. */
 private val CorrectGreen = androidx.compose.ui.graphics.Color(0xFF66BB6A)
@@ -77,6 +76,7 @@ fun PracticeScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val glosses by viewModel.glosses.collectAsStateWithLifecycle()
+    val showGlosses by viewModel.showGlosses.collectAsStateWithLifecycle()
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -93,9 +93,11 @@ fun PracticeScreen(
         PracticeContent(
             state = state,
             glosses = glosses,
+            showGlosses = showGlosses,
             onInput = viewModel::onInputChange,
             onCheck = viewModel::check,
-            onNewCard = viewModel::newCard,
+            onNext = viewModel::nextCard,
+            onPrevious = viewModel::previousCard,
             modifier = Modifier.padding(innerPadding),
         )
     }
@@ -105,9 +107,11 @@ fun PracticeScreen(
 private fun PracticeContent(
     state: PracticeUiState,
     glosses: Map<String, String>,
+    showGlosses: Boolean,
     onInput: (Int, String) -> Unit,
     onCheck: () -> Unit,
-    onNewCard: () -> Unit,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val card = state.card
@@ -120,11 +124,11 @@ private fun PracticeContent(
     val focusRequesters = remember(state.nonce) { List(card.blanks.size) { FocusRequester() } }
     LaunchedEffect(state.nonce) { runCatching { focusRequesters.firstOrNull()?.requestFocus() } }
 
-    // Enter on a blank: jump to the next blank; on the last blank, Check; after Check, new card.
+    // Enter on a blank: jump to the next blank; on the last blank, Check; after Check, next card.
     val onImeAction: (Int) -> Unit = { i ->
         when {
             i < card.blanks.lastIndex -> runCatching { focusRequesters[i + 1].requestFocus() }
-            state.checked -> onNewCard()
+            state.checked -> onNext()
             else -> onCheck()
         }
     }
@@ -135,12 +139,13 @@ private fun PracticeContent(
             .fillMaxSize()
             // Centre the content in the space between the top bar and the keyboard.
             .imePadding()
-            // A horizontal swipe (either direction) draws a new random card.
+            // Bidirectional swipe: left advances to the next card, right steps back.
             .pointerInput(state.nonce) {
                 var total = 0f
                 detectHorizontalDragGestures(
                     onDragEnd = {
-                        if (abs(total) > swipeThresholdPx) onNewCard()
+                        if (total <= -swipeThresholdPx) onNext()
+                        else if (total >= swipeThresholdPx) onPrevious()
                         total = 0f
                     },
                     onHorizontalDrag = { _, dragAmount -> total += dragAmount },
@@ -162,6 +167,7 @@ private fun PracticeContent(
             state = state,
             card = card,
             glosses = glosses,
+            showGlosses = showGlosses,
             focusRequesters = focusRequesters,
             onInput = onInput,
             onImeAction = onImeAction,
@@ -170,49 +176,74 @@ private fun PracticeContent(
 }
 
 /**
- * The Turkish line, directly on the background. Each [CardPiece.Word] is rendered as an inline
- * row of its literal/blank parts; literal parts are press-and-hold targets that show the word's
- * translation. Separators (spaces/punctuation) are plain text.
+ * The Turkish line, directly on the background. The line wraps only at spaces: each word — together
+ * with its suffix blank(s) and any attached punctuation — is laid out as a single unbreakable [Row],
+ * so a blank never falls onto a different line from the stem it belongs to. Literal word parts are
+ * press-and-hold targets that show the word's translation; when [showGlosses] is on, that
+ * translation is also shown permanently above each word and the line bottom-aligns so the words
+ * still sit on a common baseline.
  */
 @Composable
 private fun TurkishLine(
     state: PracticeUiState,
     card: PracticeCard,
     glosses: Map<String, String>,
+    showGlosses: Boolean,
     focusRequesters: List<FocusRequester>,
     onInput: (Int, String) -> Unit,
     onImeAction: (Int) -> Unit,
 ) {
     val style = MaterialTheme.typography.headlineMedium
+    val rowAlignment = if (showGlosses) Alignment.Bottom else Alignment.CenterVertically
     FlowRow(
         horizontalArrangement = Arrangement.Center,
-        itemVerticalAlignment = Alignment.CenterVertically,
+        itemVerticalAlignment = rowAlignment,
     ) {
         var blankIndex = 0
-        card.pieces.forEach { piece ->
-            when (piece) {
-                is CardPiece.Separator -> Text(text = piece.text, style = style)
+        wrapUnits(card.pieces).forEach { unit ->
+            Row(verticalAlignment = rowAlignment) {
+                unit.forEach { piece ->
+                    when (piece) {
+                        is CardPiece.Separator -> Text(text = piece.text, style = style)
 
-                is CardPiece.Word -> {
-                    val gloss = glosses[piece.lemma.lowercase(TR)]
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        piece.parts.forEach { part ->
-                            when (part) {
-                                is CardSegment.Text -> TooltipWord(part.text, piece.lemma, gloss, style)
+                        is CardPiece.Word -> {
+                            val gloss = glosses[piece.surface.lowercase(TR)]
+                            // Render this word's literal/blank parts in reading order, advancing the
+                            // shared blank index. Defined as a local content lambda so the parts can
+                            // be placed either inline or under a permanent gloss without duplication.
+                            val parts: @Composable () -> Unit = {
+                                piece.parts.forEach { part ->
+                                    when (part) {
+                                        is CardSegment.Text ->
+                                            TooltipWord(part.text, gloss, style)
 
-                                is CardSegment.Blank -> {
-                                    val i = blankIndex++
-                                    BlankCell(
-                                        answer = part.answer,
-                                        input = state.inputs.getOrElse(i) { "" },
-                                        checked = state.checked,
-                                        correct = state.results.getOrElse(i) { false },
-                                        focusRequester = focusRequesters.getOrNull(i),
-                                        imeAction = if (i == card.blanks.lastIndex) ImeAction.Done else ImeAction.Next,
-                                        onInput = { onInput(i, it) },
-                                        onImeAction = { onImeAction(i) },
-                                    )
+                                        is CardSegment.Blank -> {
+                                            val i = blankIndex++
+                                            BlankCell(
+                                                answer = part.answer,
+                                                input = state.inputs.getOrElse(i) { "" },
+                                                checked = state.checked,
+                                                correct = state.results.getOrElse(i) { false },
+                                                focusRequester = focusRequesters.getOrNull(i),
+                                                imeAction = if (i == card.blanks.lastIndex) ImeAction.Done else ImeAction.Next,
+                                                onInput = { onInput(i, it) },
+                                                onImeAction = { onImeAction(i) },
+                                            )
+                                        }
+                                    }
                                 }
+                            }
+                            if (showGlosses && !gloss.isNullOrBlank()) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = gloss,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                    Row(verticalAlignment = Alignment.Bottom) { parts() }
+                                }
+                            } else {
+                                parts()
                             }
                         }
                     }
@@ -223,12 +254,32 @@ private fun TurkishLine(
 }
 
 /**
- * A literal word part. While pressed-and-held it shows a tooltip with the word's translation
- * (`<lemma> — <gloss>`), dismissed on release. Words with no bundled gloss render as plain text.
+ * Group pieces into wrap units that the line may break *between* but never *within*. A unit holds a
+ * word with its blanks plus any directly-attached punctuation; a separator that contains whitespace
+ * ends the current unit (a trailing space stays inside it so words keep their visual gap). This is
+ * what guarantees a suffix blank never wraps away from its stem.
+ */
+private fun wrapUnits(pieces: List<CardPiece>): List<List<CardPiece>> {
+    val units = mutableListOf<MutableList<CardPiece>>()
+    var current = mutableListOf<CardPiece>()
+    for (piece in pieces) {
+        current += piece
+        if (piece is CardPiece.Separator && piece.text.any { it.isWhitespace() }) {
+            units += current
+            current = mutableListOf()
+        }
+    }
+    if (current.isNotEmpty()) units += current
+    return units
+}
+
+/**
+ * A literal word part. While pressed-and-held it shows a tooltip with the word's full translation,
+ * dismissed on release. Words with no bundled gloss render as plain text.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TooltipWord(text: String, lemma: String, gloss: String?, style: TextStyle) {
+private fun TooltipWord(text: String, gloss: String?, style: TextStyle) {
     if (gloss.isNullOrBlank()) {
         Text(text = text, style = style)
         return
@@ -236,8 +287,15 @@ private fun TooltipWord(text: String, lemma: String, gloss: String?, style: Text
     val tooltipState = rememberTooltipState(isPersistent = true)
     val scope = rememberCoroutineScope()
     TooltipBox(
-        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-        tooltip = { PlainTooltip { Text("$lemma — $gloss") } },
+        // Sit well above the anchor so a pressing thumb doesn't cover the translation.
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(
+            spacingBetweenTooltipAndAnchor = 24.dp,
+        ),
+        tooltip = {
+            PlainTooltip {
+                Text(gloss, style = MaterialTheme.typography.titleMedium)
+            }
+        },
         state = tooltipState,
         enableUserInput = false, // we drive show/dismiss from the press below
     ) {
@@ -368,7 +426,7 @@ private val SAMPLE_CARD = PracticeCard(
     ),
 )
 
-private val SAMPLE_GLOSSES = mapOf("ev" to "house", "kal" to "stay")
+private val SAMPLE_GLOSSES = mapOf("evde" to "at home", "kaldım" to "i stayed")
 
 @Preview(showBackground = true, name = "Practice — typing")
 @Composable
@@ -377,9 +435,11 @@ private fun PracticeScreenPreview() {
         PracticeContent(
             state = PracticeUiState(card = SAMPLE_CARD, inputs = listOf("de", "")),
             glosses = SAMPLE_GLOSSES,
+            showGlosses = false,
             onInput = { _, _ -> },
             onCheck = {},
-            onNewCard = {},
+            onNext = {},
+            onPrevious = {},
         )
     }
 }
@@ -396,9 +456,11 @@ private fun PracticeScreenCheckedPreview() {
                 results = listOf(true, false),
             ),
             glosses = SAMPLE_GLOSSES,
+            showGlosses = true,
             onInput = { _, _ -> },
             onCheck = {},
-            onNewCard = {},
+            onNext = {},
+            onPrevious = {},
         )
     }
 }

@@ -37,7 +37,7 @@ class GlossesTableTest {
         )
         DriverManager.getConnection("jdbc:sqlite:${db.absolutePath}").use { conn ->
             conn.createStatement().use { st ->
-                st.executeQuery("SELECT gloss FROM glosses WHERE lemma = 'ev'").use { rs ->
+                st.executeQuery("SELECT gloss FROM glosses WHERE word = 'ev'").use { rs ->
                     assertTrue(rs.next(), "gloss row missing")
                     assertEquals("house", rs.getString(1))
                 }
@@ -57,7 +57,7 @@ class GlossesTableTest {
                 st.executeQuery("SELECT COUNT(*) FROM glosses").use { rs ->
                     rs.next(); assertEquals(0, rs.getInt(1))
                 }
-                st.executeQuery("SELECT gloss FROM glosses WHERE lemma = 'ev'").use { rs ->
+                st.executeQuery("SELECT gloss FROM glosses WHERE word = 'ev'").use { rs ->
                     assertNull(if (rs.next()) rs.getString(1) else null)
                 }
             }

@@ -84,6 +84,18 @@ class SettingsViewModelTest {
         assertTrue(!locative().enabled)
         assertEquals("disabling a category must not change its count", countBefore, locative().count)
     }
+
+    @Test
+    fun `show-glosses option reflects and persists its toggle`() = runTest(dispatcher) {
+        val vm = viewModel(FakePreferencesRepository(Category.entries.toSet()))
+        backgroundScope.launchCollect(vm.uiState)
+
+        assertTrue("defaults off", !vm.uiState.value.showGlosses)
+        vm.setShowGlosses(true)
+        assertTrue(vm.uiState.value.showGlosses)
+        vm.setShowGlosses(false)
+        assertTrue(!vm.uiState.value.showGlosses)
+    }
 }
 
 private fun <T> CoroutineScope.launchCollect(flow: StateFlow<T>) {
@@ -96,5 +108,12 @@ private class FakePreferencesRepository(initial: Set<Category>) : PreferencesRep
 
     override suspend fun setCategoryEnabled(category: Category, enabled: Boolean) {
         state.update { if (enabled) it + category else it - category }
+    }
+
+    private val glossesShown = MutableStateFlow(false)
+    override val showGlosses: StateFlow<Boolean> = glossesShown.asStateFlow()
+
+    override suspend fun setShowGlosses(enabled: Boolean) {
+        glossesShown.value = enabled
     }
 }

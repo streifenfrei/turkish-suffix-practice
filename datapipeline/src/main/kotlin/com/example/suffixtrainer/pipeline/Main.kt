@@ -36,7 +36,7 @@ fun main(args: Array<String>) {
 
     val glosses = if (config.generateGlosses) {
         println("\nGenerating word glosses…")
-        GlossGenerator(config).generate(corpus.uniqueLemmas)
+        GlossGenerator(config).generate(corpus.uniqueSurfaces)
     } else {
         println("\nSkipping glosses (dev/--no-glosses).")
         emptyMap()
@@ -45,7 +45,7 @@ fun main(args: Array<String>) {
     val dbFile = File(config.outputDir, "trainer.db")
     DbWriter(schema).write(dbFile, corpus.sentences, corpus.tokens, corpus.suffixes, glosses)
     println("Wrote ${dbFile.absolutePath} (${dbFile.length() / 1024} KiB)")
-    println("Glosses: ${glosses.size} of ${corpus.uniqueLemmas.size} lemmas")
+    println("Glosses: ${glosses.size} of ${corpus.uniqueSurfaces.size} words")
 
     val reportFile = File(config.outputDir, "low-confidence.tsv")
     corpus.report.writeTo(reportFile)
@@ -68,8 +68,12 @@ private class CorpusResult(
      * suffixes each category lost to the ambiguity filter. Does not affect what is emitted.
      */
     val beforeExclusionCoverage: Map<Category, Int>,
-    /** Distinct token lemmas (Turkish-lowercased) — the keys to translate for word tooltips. */
-    val uniqueLemmas: Set<String>,
+    /**
+     * Distinct token surface forms (Turkish-lowercased) — the keys to translate for the per-word
+     * translations. Full inflected words (with their suffixes), not roots, so the gloss reflects
+     * the word as it appears in the sentence (e.g. `evde` → "at home", not `ev` → "home").
+     */
+    val uniqueSurfaces: Set<String>,
 )
 
 /**
@@ -98,7 +102,7 @@ private class CorpusBuilder(private val config: PipelineConfig) {
         var excludedTargetTokens = 0
         var excludedTargetSuffixes = 0
         val beforeExclusionCoverage = mutableMapOf<Category, Int>()
-        val uniqueLemmas = sortedSetOf<String>()
+        val uniqueSurfaces = sortedSetOf<String>()
 
         for (pair in pairs) {
             if (sentences.size >= config.maxSentences) break
@@ -135,7 +139,7 @@ private class CorpusBuilder(private val config: PipelineConfig) {
                     charStart = token.charStart,
                     charEnd = token.charEnd,
                 )
-                if (token.lemma.isNotBlank()) uniqueLemmas += token.lemma.lowercase(TR)
+                if (token.surface.isNotBlank()) uniqueSurfaces += token.surface.lowercase(TR)
                 if (token.ambiguous) {
                     // Low-confidence: log for review and never emit its suffixes as targets.
                     if (token.suffixes.isNotEmpty()) {
@@ -163,7 +167,7 @@ private class CorpusBuilder(private val config: PipelineConfig) {
         return CorpusResult(
             sentences, tokens, suffixes, report,
             excludedTargetTokens, excludedTargetSuffixes,
-            beforeExclusionCoverage, uniqueLemmas,
+            beforeExclusionCoverage, uniqueSurfaces,
         )
     }
 

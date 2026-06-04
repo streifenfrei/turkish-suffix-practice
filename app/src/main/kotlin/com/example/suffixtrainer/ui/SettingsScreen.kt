@@ -1,5 +1,6 @@
 package com.example.suffixtrainer.ui
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -55,6 +56,7 @@ fun SettingsScreen(
         SettingsContent(
             state = state,
             onToggle = viewModel::toggle,
+            onSetShowGlosses = viewModel::setShowGlosses,
             modifier = Modifier.padding(innerPadding),
         )
     }
@@ -64,6 +66,7 @@ fun SettingsScreen(
 private fun SettingsContent(
     state: SettingsUiState,
     onToggle: (Category, Boolean) -> Unit,
+    onSetShowGlosses: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -71,6 +74,16 @@ private fun SettingsContent(
             .fillMaxSize()
             .padding(horizontal = 16.dp),
     ) {
+        item { SectionHeader("Display") }
+        item {
+            OptionRow(
+                label = "Show word translations",
+                description = "Display each word's English meaning above the sentence",
+                checked = state.showGlosses,
+                onCheckedChange = onSetShowGlosses,
+            )
+        }
+        item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
         item { SectionHeader("Cases") }
         items(state.cases, key = { it.category.name }) { toggle ->
             ToggleRow(toggle, onToggle)
@@ -80,6 +93,32 @@ private fun SettingsContent(
         items(state.tenses, key = { it.category.name }) { toggle ->
             ToggleRow(toggle, onToggle)
         }
+    }
+}
+
+/** A plain on/off setting row (label + optional description + switch), no card count. */
+@Composable
+private fun OptionRow(
+    label: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(text = label, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = description,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
@@ -138,8 +177,9 @@ private fun SettingsScreenPreview() {
         tenses = TENSE_CATEGORIES.mapIndexed { i, c ->
             CategoryToggle(c, c.displayLabel(), true, count = 40 - i * 5)
         },
+        showGlosses = true,
     )
     TurkishSuffixPracticeTheme {
-        SettingsContent(state = sample, onToggle = { _, _ -> })
+        SettingsContent(state = sample, onToggle = { _, _ -> }, onSetShowGlosses = {})
     }
 }

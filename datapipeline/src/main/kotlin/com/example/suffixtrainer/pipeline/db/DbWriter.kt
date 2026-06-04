@@ -50,12 +50,12 @@ class DbWriter(private val schema: RoomSchema) {
      */
     private fun insertGlosses(conn: Connection, glosses: Map<String, String>) {
         conn.createStatement().use {
-            it.executeUpdate("CREATE TABLE IF NOT EXISTS glosses (lemma TEXT PRIMARY KEY, gloss TEXT)")
+            it.executeUpdate("CREATE TABLE IF NOT EXISTS glosses (word TEXT PRIMARY KEY, gloss TEXT)")
         }
         if (glosses.isEmpty()) return
-        conn.prepareStatement("INSERT OR REPLACE INTO glosses (lemma, gloss) VALUES (?, ?)").use { ps ->
-            for ((lemma, gloss) in glosses) {
-                ps.setString(1, lemma)
+        conn.prepareStatement("INSERT OR REPLACE INTO glosses (word, gloss) VALUES (?, ?)").use { ps ->
+            for ((word, gloss) in glosses) {
+                ps.setString(1, word)
                 ps.setString(2, gloss)
                 ps.addBatch()
             }

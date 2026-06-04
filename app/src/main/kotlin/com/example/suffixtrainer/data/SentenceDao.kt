@@ -6,8 +6,8 @@ import androidx.room.SkipQueryVerification
 import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
-/** A word→translation row from the prepackaged `glosses` table (lemma keyed). */
-data class GlossRow(val lemma: String, val gloss: String)
+/** A word→translation row from the prepackaged `glosses` table (keyed by full surface form). */
+data class GlossRow(val word: String, val gloss: String)
 
 /**
  * DAO over the prepackaged corpus. [observeCorpus] returns every sentence with its tokens and
@@ -29,6 +29,6 @@ interface SentenceDao {
      * verify this query at compile time. Returns empty if the table is absent.
      */
     @SkipQueryVerification
-    @Query("SELECT lemma, gloss FROM glosses")
+    @Query("SELECT word, gloss FROM glosses")
     suspend fun allGlosses(): List<GlossRow>
 }
